@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -24,20 +26,53 @@ type Board struct {
 	B          uint64 // black
 	Board      uint64 // all pieces on the board
 	SideToMove bool   // true is white
+	Castling   string // castling rights
+	EnPassant  string // En Passant Option Square
+	HalfMove   int    // how many moves both players have made since last pawn advance or piece capture (50 move draw rule)
+	FullMove   int    // number of completered turns this game. incremented every time black has moved.
 }
 
-var board Board
+func (b *Board) makeMove(move string) error {
+	// compute a move and update the board
+	// assumption: GUI sends only legal move, hence: no validation required
+	/*
+		Normal Case:
+		- e2e4
+		- length of 4
+		- if square already occupied, gotta delete other piece (was taken)
+		Edge Cases:
+		- promotion to queen: e7e8q
+		- castling: e1g1 -> rook also has to teleport
+		- en passant: e5d5, switching columns and captured pawn is not on the target square!
+	*/
+	//split move input into 'origin' and 'target'
+
+	if len(move) == 4 {
+		origin := move[:2]
+		target := move[2:]
+		fmt.Fprintf(os.Stderr, "Moving, origin: %v, target: %v\n", origin, target)
+	}
+	return nil
+}
+
+func convert(row int, col int) int {
+	// converts row and col index to bitboard pos
+	// expects 1 to 8 numerical
+	row = row - 1
+	col = col - 1
+	return row*8 + col
+}
+
+func convert0To7(row int, col int) int {
+	// converts row and col index to bitboard pos
+	// expects index 0 to 7
+	return row*8 + col
+}
 
 func printBoard(board Board) {
 	// Uppercase = white, lowercase = black
 	// 2 loops, first for rows, second for columns.
 	// rows has to count backwards from 8 to 1 to go from top to bottom
-	convert := func(row int, col int) int {
-		row = row - 1
-		col = col - 1
-		return row*8 + col
-	}
-
 	for i := 8; i >= 1; i-- {
 		// Outer loop going from top to bottom!
 		for j := 1; j <= 8; j++ {
@@ -185,6 +220,200 @@ func setupBoard() Board {
 	return board
 }
 
+func findBitPos(row int, col int) int {
+	row = 7 - row
+	pos := convert0To7(row, col)
+	// fmt.Fprintf(os.Stderr, "findBitPos triggered with values: row %v, col %v, pos %v", row, col, pos)
+	return pos
+}
+
+func parseFen(fenstring string) (Board, error) {
+	fenstringRows := strings.Split(fenstring, "/")
+	var board Board
+	for i, row := range fenstringRows {
+		// iterate over each char to evaluate:
+		// row index 0 is Row 8
+		columnTracker := 0
+		for _, char := range row {
+			if _, err := strconv.Atoi(string(char)); err == nil {
+				// is number, gotta move the index by number
+				num, _ := strconv.Atoi(string(char))
+				columnTracker = columnTracker + num
+				continue
+			}
+			// Letter hit, no number found
+			// match letter to piece and save on Board
+			bitIndex := findBitPos(i, columnTracker)
+			switch char {
+			case 'p':
+				// add black pawn to board
+				var bpawn uint64 = 1 << bitIndex
+				board.BP = board.BP | bpawn
+			case 'P':
+				// add white pawn
+				var wpawn uint64 = 1 << bitIndex
+				board.WP = board.WP | wpawn
+			case 'r':
+				// add black rooks
+				var brook uint64 = 1 << bitIndex
+				board.BR = board.BR | brook
+			case 'R':
+				// add white rooks
+				var wrook uint64 = 1 << bitIndex
+				board.WR = board.WR | wrook
+			case 'n':
+				// add black knights
+				var bnight uint64 = 1 << bitIndex
+				board.BN = board.BN | bnight
+			case 'N':
+				// add white knights
+				var wnight uint64 = 1 << bitIndex
+				board.WN = board.WN | wnight
+			case 'b':
+				// add black bishops
+				var bbish uint64 = 1 << bitIndex
+				board.BB = board.BB | bbish
+			case 'B':
+				// add white bishops
+				var wbish uint64 = 1 << bitIndex
+				board.WB = board.WB | wbish
+			case 'q':
+				// add black Queen
+				var bqueen uint64 = 1 << bitIndex
+				board.BQ = board.BQ | bqueen
+			case 'Q':
+				// add white Queen
+				var wqueen uint64 = 1 << bitIndex
+				board.WQ = board.WQ | wqueen
+			case 'k':
+				// add black King
+				var bking uint64 = 1 << bitIndex
+				board.BK = board.BK | bking
+			case 'K':
+				// add white King
+				var wking uint64 = 1 << bitIndex
+				board.WK = board.WK | wking
+			}
+			// increment columnTracker by 1
+			columnTracker++
+		}
+	}
+	// build board, white and black
+	board.W = board.WP | board.WN | board.WB | board.WR | board.WQ | board.WK
+	board.B = board.BP | board.BN | board.BB | board.BR | board.BQ | board.BK
+	board.Board = board.W | board.B
+	return board, nil
+}
+
+func parsePosition(input []string) (Board, error) {
+	// gotta be able to read the fenstring to a board,
+	// determine whos turn it is
+	// for now: no validation, if moves are legal
+
+	var outBoard Board
+	var err error
+
+	if len(input) < 4 {
+		// all FEN inputs shorter than 4 are invalid
+		return Board{}, errors.New("invalid FEN input, shorter than 4 args")
+	}
+
+	position := input[0]
+	if position != "position" {
+		return Board{}, errors.New("keyword 'position' triggered, but not found on pos 0 in parsePosition")
+	}
+
+	// we get a "fen" or "startpos": fen is more likely studying / debugging, startpos is normal case
+	initPos := input[1]
+	// startpos scenario
+	if initPos == "startpos" {
+		// typical input looks like: position startpos moves e2e4 e7e5 g1f3 b8c6 ... - rest is implicit!
+		outBoard = setupBoard()
+		outBoard.EnPassant = "-"
+		outBoard.SideToMove = true
+		outBoard.Castling = "KQkq"
+		outBoard.HalfMove = 0
+		outBoard.FullMove = 1
+		// moves parsing
+		// validate 'moves' keyword
+		movesKeyword := input[2]
+		if movesKeyword != "moves" {
+			return Board{}, errors.New("unexpected keyword: expected 'moves' on index 2")
+		}
+		moves := input[3:]
+
+		if len(moves) == 0 {
+			return Board{}, errors.New("no moves provided after 'startpos' keyword")
+		}
+		// process moves
+		outBoard.makeMove(moves[0])
+		return outBoard, nil
+	}
+	// startpos scenario
+
+	if initPos == "fen" {
+		fmt.Fprintf(os.Stderr, "parsing input 2: %v\n", input[2])
+		outBoard, err = parseFen(input[2])
+		if err != nil {
+			return Board{}, err
+		}
+	}
+
+	// side to move next:
+	sideMove := input[3]
+	if sideMove == "w" {
+		// white
+		outBoard.SideToMove = true
+	} else {
+		// black
+		outBoard.SideToMove = false
+	}
+
+	// castling rights
+	// Qk = white can castle Queen side, black can castle King side. "-", no castling options.
+	outBoard.Castling = input[4]
+
+	// en passant indicator
+	if len(input) <= 4 {
+		return Board{}, errors.New("could not find element for en passant indicator in FEN")
+	}
+	outBoard.EnPassant = input[5]
+
+	// halfmove clock
+	if len(input) <= 5 {
+		return Board{}, errors.New("could not parse halfmove clock, input too short")
+	}
+	val, err := strconv.Atoi(input[6])
+	if err != nil {
+		return Board{}, errors.New("could not parse input 6 as int")
+	}
+	outBoard.HalfMove = val
+
+	// Fullmove number
+	if len(input) <= 6 {
+		return Board{}, errors.New("could not parse fullmove clock")
+	}
+	val, err = strconv.Atoi(input[7])
+	if err != nil {
+		return Board{}, errors.New("could not parse input 7 as int to Fullmove")
+	}
+	outBoard.FullMove = val
+
+	// moves
+	if len(input) <= 7 {
+		// no moves
+		return outBoard, nil
+	}
+	movesKeyword := input[8]
+	if movesKeyword != "moves" {
+		return Board{}, errors.New("keyword on index 8 was not moves, expected 'moves'")
+	}
+
+	// parse moves actually without validation
+
+	return outBoard, nil
+}
+
 func main() {
 	// CLI based program which speaks UCI
 	// Input: Bufio.Scanner reads the os.Stdin
@@ -245,12 +474,14 @@ func main() {
 	// Loop over os.Stdin lines
 
 	scanner := bufio.NewScanner(os.Stdin)
+	var currentBoard Board
 
 MainLoop:
 	for scanner.Scan() {
 
 		line := scanner.Text()
 		input := strings.Fields(line)
+		var err error
 
 		if len(input) == 0 {
 			// avoid panic when no input
@@ -271,14 +502,18 @@ MainLoop:
 			fmt.Fprintf(os.Stdout, "readyok\n")
 		case "ucinewgame":
 			// for now just board setup and initialization
-			board = setupBoard()
+			board := setupBoard()
 			printBoard(board)
 		case "position":
 			// position [fenstring | startpos] moves
-			fmt.Fprintln(os.Stderr, "not implemented yet")
+			currentBoard, err = parsePosition(input)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error parsePos: %v", err)
+			}
 			// FEN documentation and examples: https://www.chess.com/terms/fen-chess
 		case "d":
 			// debug, should be used like: position fen .... -> d -> check if position is any good
+			printBoard(currentBoard)
 		case "go":
 			// always returns the best move found: bestmove <move>
 			fmt.Fprintln(os.Stderr, "not implemented yet")
