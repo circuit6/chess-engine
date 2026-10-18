@@ -32,6 +32,37 @@ type Board struct {
 	FullMove   int    // number of completered turns this game. incremented every time black has moved.
 }
 
+func convertSquare(square string) int {
+	cols := make(map[string]int)
+	cols["a"] = 0
+	cols["b"] = 1
+	cols["c"] = 2
+	cols["d"] = 3
+	cols["e"] = 4
+	cols["f"] = 5
+	cols["g"] = 6
+	cols["h"] = 7
+	file := cols[string(square[0])]
+	row, err := strconv.Atoi(string(square[1]))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not convert number of square to int")
+	}
+	row = row - 1
+	bitPos := convert0To7(row, file)
+	return bitPos
+}
+
+func (b *Board) generateBoards() []*uint64 {
+	boards := []*uint64{&b.BP, &b.WP, &b.BK, &b.BN, &b.BB, &b.BQ, &b.BR, &b.WB, &b.WK, &b.WN, &b.WQ, &b.WR}
+	return boards
+}
+
+func (b *Board) updateGlobals() {
+	b.W = b.WK | b.WQ | b.WB | b.WR | b.WN | b.WP
+	b.B = b.BK | b.BQ | b.BB | b.BR | b.BN | b.BP
+	b.Board = b.W | b.B
+}
+
 func (b *Board) makeMove(move string) error {
 	// compute a move and update the board
 	// assumption: GUI sends only legal move, hence: no validation required
@@ -46,11 +77,38 @@ func (b *Board) makeMove(move string) error {
 		- en passant: e5d5, switching columns and captured pawn is not on the target square!
 	*/
 	//split move input into 'origin' and 'target'
-
 	if len(move) == 4 {
 		origin := move[:2]
 		target := move[2:]
-		fmt.Fprintf(os.Stderr, "Moving, origin: %v, target: %v\n", origin, target)
+		// convert 'e2' to bitpos
+		bitOrigin := convertSquare(origin)
+		bitTarget := convertSquare(target)
+		var boardOrigin uint64 = 1 << bitOrigin
+		var boardTarget uint64 = 1 << bitTarget
+		// loop over 'piece boards' to 'AND' check which hits
+		boards := b.generateBoards()
+		// check for capture before updating board, otherwise we 'find' the newly set move-board in next for loop
+		// TODO: En Passant Rule is not implemented here
+		for _, tboard := range boards {
+			if *tboard&boardTarget != 0 {
+				*tboard &^= boardTarget
+				break
+			}
+		}
+		for _, board := range boards {
+			// we need to use *board to get from the pointer to the actual data stored in the board
+			// the if reads as: if board AND origin Board have overlap (!=0; no overlap, means the AND is 0)
+			if *board&boardOrigin != 0 {
+				// the &^ is the AND with the flipped bit of boardOrigin.
+				// if boardOrigin was 0001 0000, we now have 1110 1111.
+				// we then perform the AND to clear out exactly that one spot, where the '0' sits in the flipped int
+				// *board |= is the same as *board = *board | boardTarget
+				*board &^= boardOrigin
+				*board |= boardTarget
+				break
+			}
+		}
+		b.updateGlobals()
 	}
 	return nil
 }
@@ -206,17 +264,7 @@ func setupBoard() Board {
 	var bking uint64 = 1 << 60
 	board.BK = bking
 
-	white := wking | wqueen | wbish | wrook | wknight | wpawns
-	fmt.Printf("white: %064b\n", white)
-	black := bking | bqueen | bbish | brook | bknight | bpawns
-	fmt.Printf("black: %064b\n", black)
-
-	board.W = white
-	board.B = black
-
-	allboard := white | black
-	board.Board = allboard
-
+	board.updateGlobals()
 	return board
 }
 
@@ -346,7 +394,9 @@ func parsePosition(input []string) (Board, error) {
 			return Board{}, errors.New("no moves provided after 'startpos' keyword")
 		}
 		// process moves
-		outBoard.makeMove(moves[0])
+		for _, move := range moves {
+			outBoard.makeMove(move)
+		}
 		return outBoard, nil
 	}
 	// startpos scenario
