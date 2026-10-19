@@ -197,6 +197,15 @@ func (s Square) String() string {
 	return fmt.Sprintf("%c%c", 'a'+file, '1'+row)
 }
 
+func (s Square) getRank() int {
+	if s < 0 || s > 63 {
+		return -1
+	}
+	rank := s / 8
+	x := int(rank)
+	return x
+}
+
 func (s Square) getFile() int {
 	if s < 0 || s > 63 {
 		return -1
@@ -210,12 +219,21 @@ type Board struct {
 	squares    [64]Piece
 	SideToMove bool
 	Castling   string
-	EnPassant  string
+	EnPassant  Square
 	HalfMove   int
 	FullMove   int
 }
 
+func absDiff(a, b int) int {
+	if a > b {
+		return a - b
+	}
+	return b - a
+}
+
 func (b *Board) makeMove(move string) error {
+	// makeMove needs to universally update sideToMove, Castling rights, en passant squares, halfmove and fullmove
+	// TODO: Castling Rights, Halfmove and fullmove missing
 	// edge cases: promotion, castling, enpassant
 	if len(move) == 4 {
 		origin := move[:2]
@@ -228,6 +246,28 @@ func (b *Board) makeMove(move string) error {
 		sqTarget, err := SquareFromString(target)
 		if err != nil {
 			return fmt.Errorf("SquareFromString failed on target: %w", err)
+		}
+		// check if en passant field has to get set
+		if pieceOrigin.Type == Pawn && absDiff(sqTarget.getRank(), sqOrigin.getRank()) > 1 {
+			// pawn moved more than 1 rank, resulting in en passant square
+			// understand in which direction pawn moved
+			if sqTarget.getRank() == 3 {
+				// white has moved double
+				epFile := sqTarget.getFile()
+				sqEnPassant, err := SquareFromIndex(epFile, 2) // 2 hardcoded row for White
+				if err != nil {
+					return fmt.Errorf("failed to set en passant square%w", err)
+				}
+				b.EnPassant = sqEnPassant
+			} else {
+				// black has moved double
+				epFile := sqTarget.getFile()
+				sqEnPassant, err := SquareFromIndex(epFile, 5)
+				if err != nil {
+					return fmt.Errorf("failed to set en passant square: %w", err)
+				}
+				b.EnPassant = sqEnPassant
+			}
 		}
 		enpassant := false
 		// check for enpassant:
@@ -286,7 +326,6 @@ func (b *Board) makeMove(move string) error {
 			b.squares[sqOrigin].Type = Empty
 			b.squares[sqOrigin].Color = None
 		}
-		return nil
 	}
 	// promotion edge case:
 	if len(move) == 5 {
@@ -320,9 +359,10 @@ func (b *Board) makeMove(move string) error {
 		// reset square of origin
 		b.squares[sqOrigin].Type = Empty
 		b.squares[sqOrigin].Color = None
-		return nil
-
 	}
+	whoTurn := b.SideToMove
+	// gotta flip whos turn it is
+	b.SideToMove = !whoTurn
 	return nil
 }
 
