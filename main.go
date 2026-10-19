@@ -177,6 +177,7 @@ func main() {
 	// Loop over os.Stdin lines
 	scanner := bufio.NewScanner(os.Stdin)
 	var currentBoard *Board
+	currentBoard = NewBoard()
 
 MainLoop:
 	for scanner.Scan() {

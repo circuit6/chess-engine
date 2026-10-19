@@ -171,7 +171,7 @@ func SquareFromString(s string) (Square, error) {
 	file := s[0] - 'a' // s[0] is a byte (uint8 representation) and the other value is an untyped constant. It adopts to the other value in that line - hence we are subtracting byte from byte to derive the outputs.
 	rank := s[1] - '1' // same applies here, also single quotes '' are runes -> runes would be uint32, however, as explained above, adopted top mechanism and treated as byte
 
-	if file < 0 || file > 7 || rank < 0 || rank > 7 {
+	if file > 7 || rank > 7 {
 		return 0, fmt.Errorf("invalid algebraic notation")
 	}
 	return Square(int(rank)*8 + int(file)), nil
@@ -197,6 +197,15 @@ func (s Square) String() string {
 	return fmt.Sprintf("%c%c", 'a'+file, '1'+row)
 }
 
+func (s Square) getFile() int {
+	if s < 0 || s > 63 {
+		return -1
+	}
+	file := s % 8
+	x := int(file)
+	return x
+}
+
 type Board struct {
 	squares    [64]Piece
 	SideToMove bool
@@ -207,6 +216,7 @@ type Board struct {
 }
 
 func (b *Board) makeMove(move string) error {
+	// edge cases: promotion, castling, enpassant
 	if len(move) == 4 {
 		origin := move[:2]
 		target := move[2:]
@@ -219,13 +229,99 @@ func (b *Board) makeMove(move string) error {
 		if err != nil {
 			return fmt.Errorf("SquareFromString failed on target: %w", err)
 		}
+		enpassant := false
+		// check for enpassant:
+		if pieceOrigin.Type == Pawn && sqOrigin.getFile() != sqTarget.getFile() {
+			// we moved a pawn across different files -> en passant
+			enpassant = true
+		}
+		// check for castling:
+		castles := false
+		if pieceOrigin.Type == King {
+			// question: did king travel more than 1 file?
+			diff := sqOrigin.getFile() - sqTarget.getFile()
+			if diff != 1 && diff != -1 {
+				castles = true
+			}
+		}
 		// move to new field (even when capturing)
 		b.squares[sqTarget].Type = pieceOrigin.Type
 		b.squares[sqTarget].Color = pieceOrigin.Color
 		// reset square of origin
 		b.squares[sqOrigin].Type = Empty
 		b.squares[sqOrigin].Color = None
+		if castles {
+			// check target field of king and conditionally simply add rook move
+			switch sqTarget {
+			case Square(G1):
+				b.squares[H1].Type = Empty
+				b.squares[H1].Color = None
+				b.squares[F1].Type = Rook
+				b.squares[F1].Color = White
+			case Square(C1):
+				b.squares[A1].Type = Empty
+				b.squares[A1].Color = None
+				b.squares[D1].Type = Rook
+				b.squares[D1].Color = White
+			case Square(G8):
+				b.squares[H8].Type = Empty
+				b.squares[H8].Color = None
+				b.squares[F8].Type = Rook
+				b.squares[F8].Color = Black
+			case Square(C8):
+				b.squares[A8].Type = Empty
+				b.squares[A8].Color = None
+				b.squares[D8].Type = Rook
+				b.squares[D8].Color = Black
+			}
+		}
+		if enpassant {
+			// delete neighbouring pawn
+			// left or right? abuse sqOrigin for this purpose
+			if sqOrigin.getFile() > sqTarget.getFile() {
+				sqOrigin--
+			} else {
+				sqOrigin++
+			}
+			b.squares[sqOrigin].Type = Empty
+			b.squares[sqOrigin].Color = None
+		}
 		return nil
+	}
+	// promotion edge case:
+	if len(move) == 5 {
+		origin := move[:2]
+		target := move[2:4]
+		promotion := move[4]
+		sqOrigin, err := SquareFromString(origin)
+		if err != nil {
+			return fmt.Errorf("SquareFromString failed on origin: %w", err)
+		}
+		pieceOrigin := b.squares[sqOrigin]
+		sqTarget, err := SquareFromString(target)
+		if err != nil {
+			return fmt.Errorf("SquareFromString failed on target: %w", err)
+		}
+		// determine promotion to what:
+		var promoted PieceType
+		switch promotion {
+		case 'r':
+			promoted = PieceType(Rook)
+		case 'b':
+			promoted = PieceType(Bishop)
+		case 'n':
+			promoted = PieceType(Knight)
+		case 'q':
+			promoted = PieceType(Queen)
+		}
+		// move to new field (even when capturing)
+		b.squares[sqTarget].Type = promoted
+		b.squares[sqTarget].Color = pieceOrigin.Color
+		// reset square of origin
+		b.squares[sqOrigin].Type = Empty
+		b.squares[sqOrigin].Color = None
+		return nil
+
 	}
 	return nil
 }
