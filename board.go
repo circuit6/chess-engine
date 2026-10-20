@@ -233,8 +233,8 @@ func absDiff(a, b int) int {
 
 func (b *Board) makeMove(move string) error {
 	// makeMove needs to universally update sideToMove, Castling rights, en passant squares, halfmove and fullmove
-	// TODO: Castling Rights, Halfmove and fullmove missing
 	// edge cases: promotion, castling, enpassant
+	var wasHalfMove bool
 	if len(move) == 4 {
 		origin := move[:2]
 		target := move[2:]
@@ -251,6 +251,7 @@ func (b *Board) makeMove(move string) error {
 		if pieceOrigin.Type == Pawn && absDiff(sqTarget.getRank(), sqOrigin.getRank()) > 1 {
 			// pawn moved more than 1 rank, resulting in en passant square
 			// understand in which direction pawn moved
+			wasHalfMove = true
 			if sqTarget.getRank() == 3 {
 				// white has moved double
 				epFile := sqTarget.getFile()
@@ -273,6 +274,7 @@ func (b *Board) makeMove(move string) error {
 		// check for enpassant:
 		if pieceOrigin.Type == Pawn && sqOrigin.getFile() != sqTarget.getFile() {
 			// we moved a pawn across different files -> en passant
+			wasHalfMove = true
 			enpassant = true
 		}
 		// check for castling:
@@ -284,6 +286,28 @@ func (b *Board) makeMove(move string) error {
 				castles = true
 			}
 		}
+		// include halfmove checks: was orign a halfmove and was target capturing?
+		if pieceOrigin.Type == Pawn {
+			wasHalfMove = true
+		}
+		if b.squares[sqTarget].Type != Empty {
+			wasHalfMove = true
+		}
+		// check for rook move from original pos for removal of castling rights
+		if pieceOrigin.Type == Rook {
+			if sqOrigin == A1 {
+				b.removeCastling("K")
+			}
+			if sqOrigin == H1 {
+				b.removeCastling("Q")
+			}
+			if sqOrigin == A8 {
+				b.removeCastling("k")
+			}
+			if sqOrigin == H8 {
+				b.removeCastling("q")
+			}
+		}
 		// move to new field (even when capturing)
 		b.squares[sqTarget].Type = pieceOrigin.Type
 		b.squares[sqTarget].Color = pieceOrigin.Color
@@ -292,27 +316,38 @@ func (b *Board) makeMove(move string) error {
 		b.squares[sqOrigin].Color = None
 		if castles {
 			// check target field of king and conditionally simply add rook move
+			var wasWhite bool
 			switch sqTarget {
 			case Square(G1):
 				b.squares[H1].Type = Empty
 				b.squares[H1].Color = None
 				b.squares[F1].Type = Rook
 				b.squares[F1].Color = White
+				wasWhite = true
 			case Square(C1):
 				b.squares[A1].Type = Empty
 				b.squares[A1].Color = None
 				b.squares[D1].Type = Rook
 				b.squares[D1].Color = White
+				wasWhite = true
 			case Square(G8):
 				b.squares[H8].Type = Empty
 				b.squares[H8].Color = None
 				b.squares[F8].Type = Rook
 				b.squares[F8].Color = Black
+				wasWhite = false
 			case Square(C8):
 				b.squares[A8].Type = Empty
 				b.squares[A8].Color = None
 				b.squares[D8].Type = Rook
 				b.squares[D8].Color = Black
+				wasWhite = false
+			}
+			// castling results in loss of caslting rights
+			if wasWhite {
+				b.removeCastling("KQ")
+			} else {
+				b.removeCastling("kq")
 			}
 		}
 		if enpassant {
@@ -329,6 +364,8 @@ func (b *Board) makeMove(move string) error {
 	}
 	// promotion edge case:
 	if len(move) == 5 {
+		// pawn move:
+		wasHalfMove = true
 		origin := move[:2]
 		target := move[2:4]
 		promotion := move[4]
@@ -361,8 +398,18 @@ func (b *Board) makeMove(move string) error {
 		b.squares[sqOrigin].Color = None
 	}
 	whoTurn := b.SideToMove
+	if !whoTurn {
+		// gotta advande the fullmove
+		b.FullMove++
+	}
 	// gotta flip whos turn it is
 	b.SideToMove = !whoTurn
+	// HalfMove check and set
+	if wasHalfMove {
+		b.HalfMove = 0
+	} else {
+		b.HalfMove++
+	}
 	return nil
 }
 
@@ -429,6 +476,15 @@ func (b *Board) parseFen(fenstring string) error {
 		}
 	}
 	return nil
+}
+
+func (b *Board) removeCastling(rights string) {
+	for _, r := range rights {
+		b.Castling = strings.ReplaceAll(b.Castling, string(r), "")
+	}
+	if b.Castling == "" {
+		b.Castling = "-"
+	}
 }
 
 func (b *Board) SetupStartingPos() {
