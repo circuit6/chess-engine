@@ -182,8 +182,8 @@ func SquareFromIndex(i int, j int) (Square, error) {
 	if i < 0 || i > 7 || j < 0 || j > 7 {
 		return 0, fmt.Errorf("invalid index input, outside of 0 to 7")
 	}
-	file := i * 8
-	squareIndex := file + j
+	rank := i * 8
+	squareIndex := rank + j
 	sq := Square(squareIndex)
 	return sq, nil
 }
@@ -236,6 +236,8 @@ func (b *Board) makeMove(move string) error {
 	// TODO: En Passant detection: "pawn changed file" is not enough!
 	// TODO: parseFen bugs -> gotta work on them
 	// edge cases: promotion, castling, enpassant
+	enpassant := false // checks if enpassant MOVEMENT was done, not if field is eligible for enpassant
+	setupEnPassantField := false
 	var wasHalfMove bool
 	if len(move) == 4 {
 		origin := move[:2]
@@ -262,6 +264,7 @@ func (b *Board) makeMove(move string) error {
 					return fmt.Errorf("failed to set en passant square%w", err)
 				}
 				b.EnPassant = sqEnPassant
+				setupEnPassantField = true
 			} else {
 				// black has moved double
 				epFile := sqTarget.getFile()
@@ -270,9 +273,9 @@ func (b *Board) makeMove(move string) error {
 					return fmt.Errorf("failed to set en passant square: %w", err)
 				}
 				b.EnPassant = sqEnPassant
+				setupEnPassantField = true
 			}
 		}
-		enpassant := false
 		// check for enpassant:
 		if pieceOrigin.Type == Pawn && sqOrigin.getFile() != sqTarget.getFile() {
 			// we moved a pawn across different files -> check for neighbouring pawn
@@ -436,66 +439,72 @@ func (b *Board) makeMove(move string) error {
 	} else {
 		b.HalfMove++
 	}
+	// in case nothing was done with enpassant, we gotta reset that
+	if !setupEnPassantField {
+		b.EnPassant = A1
+	}
 	return nil
 }
 
 func (b *Board) parseFen(fenstring string) error {
 	fenstringRows := strings.Split(fenstring, "/")
+	// i is the rank = index of the row processed
+	// j is the file = index of the col processed (rune)
 	for i, rank := range fenstringRows {
 		// iterate over each char to evaluate:
 		// rank index 0 is row 8
 		file := 0
-		for j, char := range rank {
+		for _, char := range rank {
 			if _, err := strconv.Atoi(string(char)); err == nil {
 				// is number, gotta move the index by number
 				num, _ := strconv.Atoi(string(char))
-				file = file + num
+				file = file + num - 1 // -1 since we have index 0 to 7 here
 			}
 			// letter hit, no number found
 			// match letter to piece and save on board
-			i = 7 - i
-			sq, err := SquareFromIndex(i, j)
+			flippedRank := 7 - i // Lets say 0: meaning 7 - 0 = 7 -> top row, as should be!
+			sq, err := SquareFromIndex(flippedRank, file)
 			if err != nil {
 				return fmt.Errorf("converting index to square failed: %w", err)
 			}
-			piece := b.squares[sq]
+
 			switch char {
 			case 'p':
-				piece.Type = Pawn
-				piece.Color = Black
+				b.squares[sq].Type = Pawn
+				b.squares[sq].Color = Black
 			case 'r':
-				piece.Type = Rook
-				piece.Color = Black
+				b.squares[sq].Type = Rook
+				b.squares[sq].Color = Black
 			case 'n':
-				piece.Type = Knight
-				piece.Color = Black
+				b.squares[sq].Type = Knight
+				b.squares[sq].Color = Black
 			case 'b':
-				piece.Type = Bishop
-				piece.Color = Black
+				b.squares[sq].Type = Bishop
+				b.squares[sq].Color = Black
 			case 'q':
-				piece.Type = Queen
-				piece.Color = Black
+				b.squares[sq].Type = Queen
+				b.squares[sq].Color = Black
 			case 'k':
-				piece.Type = King
-				piece.Color = Black
+				b.squares[sq].Type = King
+				b.squares[sq].Color = Black
 			case 'P':
-				piece.Type = Pawn
-				piece.Color = White
+				b.squares[sq].Type = Pawn
+				b.squares[sq].Color = White
 			case 'R':
-				piece.Type = Rook
-				piece.Color = White
+				b.squares[sq].Type = Rook
+				b.squares[sq].Color = White
 			case 'N':
-				piece.Type = Knight
-				piece.Color = White
+				b.squares[sq].Type = Knight
+				b.squares[sq].Color = White
 			case 'B':
-				piece.Type = Bishop
-				piece.Color = White
+				b.squares[sq].Type = Bishop
+				b.squares[sq].Color = White
 			case 'Q':
-				piece.Type = Queen
-				piece.Color = White
+				b.squares[sq].Type = Queen
+				b.squares[sq].Color = White
 			case 'K':
-				piece.Type = King
-				piece.Color = White
+				b.squares[sq].Type = King
+				b.squares[sq].Color = White
 			}
 			// increase file tracker
 			file++
@@ -549,6 +558,12 @@ func NewBoard() *Board {
 	b := &Board{}
 	b.SetupStartingPos()
 	return b
+}
+
+func (b *Board) EmptyBoard() {
+	for index := range b.squares {
+		b.squares[index] = Piece{Empty, None}
+	}
 }
 
 func (b *Board) GetPiece(sq Square) Piece {

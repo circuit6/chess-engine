@@ -54,7 +54,16 @@ func parsePosition(input []string, outBoard *Board) error {
 		return nil
 	}
 	// fen scenario
+	// BUG: the outBoard we pass into here is already "setup" with starting position, which does not work in case of FEN -> individual starting position.
+	// BUG: the index of the file is off with the offset
 	if initPos == "fen" {
+		outBoard.EmptyBoard()
+		outBoard.EnPassant = 0
+		outBoard.SideToMove = true
+		outBoard.Castling = "KQkq"
+		outBoard.HalfMove = 0
+		outBoard.FullMove = 1
+
 		fmt.Fprintf(os.Stderr, "parsing input 2: %v\n", input[2])
 		err := outBoard.parseFen(input[2])
 		if err != nil {
@@ -122,6 +131,14 @@ func parsePosition(input []string, outBoard *Board) error {
 	}
 
 	// parse moves actually without validation
+	if len(input) <= 9 {
+		return errors.New("provided moves keyword without any moves")
+	}
+	moves := input[9:]
+	// process moves
+	for _, move := range moves {
+		outBoard.makeMove(move)
+	}
 
 	return nil
 }
