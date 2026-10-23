@@ -77,7 +77,7 @@ func parsePosition(input []string, outBoard *Board) error {
 	outBoard.Castling = input[4]
 
 	// en passant indicator
-	if len(input) <= 4 {
+	if len(input) <= 5 {
 		return errors.New("could not find element for en passant indicator in FEN")
 	}
 	// cant apply string to square type
@@ -92,7 +92,7 @@ func parsePosition(input []string, outBoard *Board) error {
 		outBoard.EnPassant = sq
 	}
 	// halfmove clock
-	if len(input) <= 5 {
+	if len(input) <= 6 {
 		return errors.New("could not parse halfmove clock, input too short")
 	}
 	val, err := strconv.Atoi(input[6])
@@ -102,7 +102,7 @@ func parsePosition(input []string, outBoard *Board) error {
 	outBoard.HalfMove = val
 
 	// Fullmove number
-	if len(input) <= 6 {
+	if len(input) <= 7 {
 		return errors.New("could not parse fullmove clock")
 	}
 	val, err = strconv.Atoi(input[7])
@@ -112,7 +112,7 @@ func parsePosition(input []string, outBoard *Board) error {
 	outBoard.FullMove = val
 
 	// moves
-	if len(input) <= 7 {
+	if len(input) <= 8 {
 		// no moves
 		return nil
 	}
