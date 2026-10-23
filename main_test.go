@@ -6,6 +6,31 @@ import (
 	"testing"
 )
 
+var flagtests = []struct {
+	name string
+	in   string
+	out  Board
+}{
+	{name: "EnPassantTest", in: "position fen rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1", out: Board{EnPassant: E3}},
+}
+
+func TestFlagParser(t *testing.T) {
+	for _, tc := range flagtests {
+		t.Run(tc.name, func(t *testing.T) {
+			board := NewBoard()
+			input := strings.Fields(tc.in)
+			err := parsePosition(input, board)
+			if err != nil {
+				t.Errorf("failed to parse position to outBoard")
+			}
+			out := tc.out
+			if out.EnPassant != board.EnPassant {
+				t.Errorf("got: %v, wanted: %v", board.EnPassant, out.EnPassant)
+			}
+		})
+	}
+}
+
 func TestParsePositionBasic(t *testing.T) {
 	board := NewBoard()
 	input := strings.Fields("position startpos moves e2e4 e7e5 g1f3 b8c6")

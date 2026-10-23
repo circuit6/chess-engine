@@ -219,7 +219,7 @@ type Board struct {
 	squares    [64]Piece
 	SideToMove bool
 	Castling   string
-	EnPassant  Square
+	EnPassant  Square // since we need to handle the "-" case, A1 or 0 is the square for "no enpassant square"
 	HalfMove   int
 	FullMove   int
 }
@@ -233,6 +233,8 @@ func absDiff(a, b int) int {
 
 func (b *Board) makeMove(move string) error {
 	// makeMove needs to universally update sideToMove, Castling rights, en passant squares, halfmove and fullmove
+	// TODO: En Passant detection: "pawn changed file" is not enough!
+	// TODO: parseFen bugs -> gotta work on them
 	// edge cases: promotion, castling, enpassant
 	var wasHalfMove bool
 	if len(move) == 4 {
@@ -255,7 +257,7 @@ func (b *Board) makeMove(move string) error {
 			if sqTarget.getRank() == 3 {
 				// white has moved double
 				epFile := sqTarget.getFile()
-				sqEnPassant, err := SquareFromIndex(epFile, 2) // 2 hardcoded row for White
+				sqEnPassant, err := SquareFromIndex(2, epFile) // 2 hardcoded row for White
 				if err != nil {
 					return fmt.Errorf("failed to set en passant square%w", err)
 				}
@@ -263,7 +265,7 @@ func (b *Board) makeMove(move string) error {
 			} else {
 				// black has moved double
 				epFile := sqTarget.getFile()
-				sqEnPassant, err := SquareFromIndex(epFile, 5)
+				sqEnPassant, err := SquareFromIndex(5, epFile)
 				if err != nil {
 					return fmt.Errorf("failed to set en passant square: %w", err)
 				}
@@ -273,9 +275,11 @@ func (b *Board) makeMove(move string) error {
 		enpassant := false
 		// check for enpassant:
 		if pieceOrigin.Type == Pawn && sqOrigin.getFile() != sqTarget.getFile() {
-			// we moved a pawn across different files -> en passant
+			// we moved a pawn across different files -> check for neighbouring pawn
+			if b.squares[sqTarget].Type == Empty {
+				enpassant = true
+			}
 			wasHalfMove = true
-			enpassant = true
 		}
 		// check for castling:
 		castles := false
@@ -284,6 +288,13 @@ func (b *Board) makeMove(move string) error {
 			diff := sqOrigin.getFile() - sqTarget.getFile()
 			if diff != 1 && diff != -1 {
 				castles = true
+			} else {
+				// normal king move, always removes castling rights
+				if pieceOrigin.Color == White {
+					b.removeCastling("KQ")
+				} else {
+					b.removeCastling("kq")
+				}
 			}
 		}
 		// include halfmove checks: was orign a halfmove and was target capturing?
@@ -293,19 +304,34 @@ func (b *Board) makeMove(move string) error {
 		if b.squares[sqTarget].Type != Empty {
 			wasHalfMove = true
 		}
+		// check for rook being captured on original pos for removal of castling rights
+		if b.squares[sqTarget].Type == Rook {
+			if sqTarget == A1 && b.squares[sqTarget].Color == White {
+				b.removeCastling("Q")
+			}
+			if sqTarget == A8 && b.squares[sqTarget].Color == White {
+				b.removeCastling("K")
+			}
+			if sqTarget == H1 && b.squares[sqTarget].Color == Black {
+				b.removeCastling("q")
+			}
+			if sqTarget == H8 && b.squares[sqTarget].Color == Black {
+				b.removeCastling("k")
+			}
+		}
 		// check for rook move from original pos for removal of castling rights
 		if pieceOrigin.Type == Rook {
 			if sqOrigin == A1 {
-				b.removeCastling("K")
-			}
-			if sqOrigin == H1 {
 				b.removeCastling("Q")
 			}
+			if sqOrigin == H1 {
+				b.removeCastling("K")
+			}
 			if sqOrigin == A8 {
-				b.removeCastling("k")
+				b.removeCastling("q")
 			}
 			if sqOrigin == H8 {
-				b.removeCastling("q")
+				b.removeCastling("k")
 			}
 		}
 		// move to new field (even when capturing)

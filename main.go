@@ -31,7 +31,7 @@ func parsePosition(input []string, outBoard *Board) error {
 	// startpos scenario
 	if initPos == "startpos" {
 		// typical input looks like: position startpos moves e2e4 e7e5 g1f3 b8c6 ... - rest is implicit!
-		outBoard.EnPassant = "-"
+		outBoard.EnPassant = 0
 		outBoard.SideToMove = true
 		outBoard.Castling = "KQkq"
 		outBoard.HalfMove = 0
@@ -80,8 +80,17 @@ func parsePosition(input []string, outBoard *Board) error {
 	if len(input) <= 4 {
 		return errors.New("could not find element for en passant indicator in FEN")
 	}
-	outBoard.EnPassant = input[5]
-
+	// cant apply string to square type
+	if input[5] == "-" {
+		outBoard.EnPassant = 0
+	} else {
+		// IMPLICIT: A1 (0) is now the square for "NO ENPASSANT"
+		sq, err := SquareFromString(input[5])
+		if err != nil {
+			return errors.New("could not parse enpassant inputs in fenstring")
+		}
+		outBoard.EnPassant = sq
+	}
 	// halfmove clock
 	if len(input) <= 5 {
 		return errors.New("could not parse halfmove clock, input too short")
@@ -208,6 +217,7 @@ MainLoop:
 			currentBoard = NewBoard()
 		case "position":
 			// position [fenstring | startpos] moves
+			currentBoard = NewBoard()
 			err = parsePosition(input, currentBoard)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error parsePos: %v", err)
